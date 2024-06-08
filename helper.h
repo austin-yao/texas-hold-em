@@ -3,7 +3,6 @@
 #include <iostream>
 #include <string.h>
 #include <arpa/inet.h>
-#include <vector>
 
-void processCommandLine(int argc, char *argv[]);
-int main(int argc, char *argv[]);
+bool do_read(int fd, char *buf, int len);
+bool do_write(int fd, char *buf, int len);
