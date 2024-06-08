@@ -31,15 +31,47 @@ int processCommandLine(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
     int sockfd = processCommandLine(argc, argv);
-    unsigned short wlen = htons(strlen(argv[2]));
-    do_write(sockfd, (char *)&wlen, sizeof(wlen));
-    do_write(sockfd, argv[2], strlen(argv[2]));
-    unsigned short rlen;
-    do_read(sockfd, (char *)&rlen, sizeof(rlen));
-    rlen = ntohs(rlen);
-    char buf[rlen + 1];
-    do_read(sockfd, buf, rlen);
-    buf[rlen] = 0;
-    printf("Echo: [%s] (%d bytes)\n", buf, rlen);
+    char buf[1000];
+    while (true)
+    {
+        fd_set r;
+        FD_ZERO(&r);
+
+        FD_SET(STDIN_FILENO, &r);
+        FD_SET(sockfd, &r);
+
+        int numFds = std::max(STDIN_FILENO, sockfd) + 1;
+        int ret = select(numFds, &r, NULL, NULL, NULL);
+        if (ret < 0)
+        {
+            std::cout << "Error using select" << std::endl;
+        }
+
+        if (FD_ISSET(STDIN_FILENO, &r))
+        {
+            // read it in and then send it.
+            char buffer[1024];
+            memset(&buffer, '\0', sizeof(buffer));
+
+            if (fgets(buffer, sizeof(buffer), stdin) != NULL)
+            {
+                int index = strcspn(buffer, "\n");
+                buffer[index] = '\0';
+                do_write_cstr(sockfd, buffer, index);
+            }
+        }
+        if (FD_ISSET(sockfd, &r))
+        {
+            memset(&buf, '\0', sizeof(buf));
+            unsigned short rlen;
+            do_read(sockfd, (char *)&rlen, sizeof(rlen));
+            rlen = ntohs(rlen);
+            char readBuf[rlen + 1];
+            memset(&readBuf, '\0', sizeof(readBuf));
+            do_read(sockfd, readBuf, rlen);
+            readBuf[rlen + 1] = 0;
+            std::cout << std::string(readBuf) << std::endl;
+        }
+    }
     close(sockfd);
 }

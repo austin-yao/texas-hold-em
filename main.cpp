@@ -1,10 +1,12 @@
 #include "main.h"
 #include "helper.h"
+#include "models.h"
 
 int numPlayers;
 bool debug;
 
-std::vector<int> seats;
+std::vector<Player> seats;
+int seatsTaken = 0;
 
 void processCommandLine(int argc, char *argv[])
 {
@@ -42,10 +44,48 @@ void processCommandLine(int argc, char *argv[])
     }
 }
 
+std::string getUsername(int fd)
+{
+    std::string message = "What is your username?";
+    do_write_string(fd, message);
+    while (true)
+    {
+        unsigned short rlen;
+        do_read(fd, (char *)&rlen, sizeof(rlen));
+        rlen = ntohs(rlen);
+        char buf[rlen + 1];
+        do_read(fd, buf, rlen);
+        buf[rlen] = 0;
+        std::string username = std::string(buf);
+        if (debug)
+        {
+            std::cout << "User inputted username " << username << std::endl;
+        }
+        if (username.size() == 0)
+        {
+            message = "Please input a username";
+            do_write_string(fd, message);
+            continue;
+        }
+        for (int i = 0; i < numPlayers; i++)
+        {
+            Player player = seats[i];
+            if (player.username.size() > 0 && player.username == username)
+            {
+                message = "This username is already taken. Please choose another one.";
+                do_write_string(fd, message);
+                continue;
+            }
+        }
+        return username;
+    }
+}
 int main(int argc, char *argv[])
 {
     numPlayers = 0;
     processCommandLine(argc, argv);
+
+    seats = std::vector<Player>(numPlayers);
 
     int listen_fd = socket(PF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0)
@@ -53,7 +93,7 @@ int main(int argc, char *argv[])
         std::cout << "Socket not working" << std::endl;
     }
 
-    // creating the binding for the master server
+    // creating the binding for the main server
     struct sockaddr_in servaddr;
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
@@ -68,26 +108,37 @@ int main(int argc, char *argv[])
     {
         std::cout << "Error listening" << std::endl;
     }
+
+    // listening for connections
+    // should make a thread for this.
     while (true)
     {
         struct sockaddr_in clientaddr;
         socklen_t clientaddrlen = sizeof(clientaddr);
         int comm_fd = accept(listen_fd, (struct sockaddr *)&clientaddr, &clientaddrlen);
+        std::string clientName = stringifyAddress(clientaddr);
         if (debug)
         {
-            printf("Connection from %s\n", inet_ntoa(clientaddr.sin_addr));
+            std::cout << "Connection from " << stringifyAddress(clientaddr) << std::endl;
         }
 
-        unsigned short rlen;
-        do_read(comm_fd, (char *)&rlen, sizeof(rlen));
-        rlen = ntohs(rlen);
-        char buf[rlen + 1];
-        do_read(comm_fd, buf, rlen);
-        buf[rlen] = 0;
-        printf("Echoing: [%s] (%d bytes)\n", buf, rlen);
-        unsigned short wlen = htons(rlen);
-        do_write(comm_fd, (char *)&wlen, sizeof(wlen));
-        do_write(comm_fd, buf, rlen);
+        if (seatsTaken == numPlayers)
+        {
+            std::string message = "Table is full.";
+            do_write_string(comm_fd, message);
+            // TODO: Revert this.
+            break;
+        }
+        else
+        {
+            // get the username of the player
+            std::string username = getUsername(comm_fd);
+            if (debug)
+            {
+                std::cout << "Received username from " << clientName << ": " << username << std::endl;
+            }
+        }
+
         close(comm_fd);
     }
     return 0;
