@@ -3,7 +3,7 @@
 
 int processCommandLine(int argc, char *argv[])
 {
-    if (argc < 3)
+    if (argc < 2)
     {
         std::cerr << "Server address not provided" << std::endl;
         exit(1);
@@ -64,11 +64,11 @@ int main(int argc, char *argv[])
         {
             memset(&buf, '\0', sizeof(buf));
             unsigned short rlen;
-            do_read(sockfd, (char *)&rlen, sizeof(rlen));
+            do_read_help(sockfd, (char *)&rlen, sizeof(rlen));
             rlen = ntohs(rlen);
             char readBuf[rlen + 1];
             memset(&readBuf, '\0', sizeof(readBuf));
-            do_read(sockfd, readBuf, rlen);
+            do_read_help(sockfd, readBuf, rlen);
             readBuf[rlen + 1] = 0;
             std::cout << std::string(readBuf) << std::endl;
         }
