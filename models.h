@@ -3,6 +3,7 @@
 #include <string>
 #include <iostream>
 #include <vector>
+#include <unordered_map>
 
 struct Player
 {
@@ -17,6 +18,7 @@ struct Player
     bool inHand;
     int amountInStreet;
     bool allIn;
+    std::vector<std::string> cards;
 };
 
 struct Hand
@@ -51,5 +53,20 @@ std::vector<std::string>
         "3d", "4d", "5d", "6d", "7d",
         "8d", "9d", "Td", "Jd", "Qd",
         "Kd", "Ad"};
+
+std::unordered_map<char, int> cardToNum = {
+    {'2', 0},
+    {'3', 1},
+    {'4', 2},
+    {'5', 3},
+    {'6', 4},
+    {'7', 5},
+    {'8', 6},
+    {'9', 7},
+    {'T', 8},
+    {'J', 9},
+    {'Q', 10},
+    {'K', 11},
+    {'A', 12}};
 
 bool compare(Player p1, Player p2);

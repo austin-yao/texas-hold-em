@@ -13,6 +13,7 @@ Game game;
 // how to best compare two hands?
 // compute a score for all of them?
 // what to do if the board is supposed to be chopped?
+// need a function to evaluate the best five hands made out of any of the 7 cards.
 
 std::shared_mutex seatsMutex;
 
@@ -447,6 +448,232 @@ void broadcastStacks(Hand &hand)
     }
     broadcastMessage(playersMessage);
 }
+
+std::vector<int> handValue(std::vector<std::string> userCards)
+{
+    // create a map out of this
+    std::vector<std::unordered_set<char>> cards;
+    std::vector<int> ans;
+    for (std::string card : userCards)
+    {
+        cards[cardToNum[card[0]]].insert(card[1]);
+    }
+
+    std::vector<char> suits = {'h', 'c', 'd', 's'};
+    // check for a royal
+    for (char suit : suits)
+    {
+        bool flag = true;
+        for (int i = 8; i <= 12; i++)
+        {
+            if (cards[i].find(suit) == cards[i].end())
+            {
+                flag = false;
+                break;
+            }
+        }
+        if (flag)
+        {
+            // royal flush
+            return {10};
+        }
+    }
+    // check for a straight flush
+    for (char suit : suits)
+    {
+        // check in decending order of flushes
+        for (int i = 8; i >= 0; i--)
+        {
+            bool flag = true;
+            for (int j = 0; j < 5; j++)
+            {
+                if (cards[i + j].find(suit) == cards[i + j].end())
+                {
+                    flag = false;
+                    break;
+                }
+            }
+            if (flag)
+            {
+                return {9, i};
+            }
+        }
+        // checking the wheel
+        bool flag = true;
+        if (cards[12].find(suit) == cards[12].end())
+        {
+            continue;
+        }
+        for (int i = 0; i < 5; i++)
+        {
+            if (cards[i].find(suit) == cards[i].end())
+            {
+                flag = false;
+                break;
+            }
+        }
+        if (flag)
+        {
+            return {9, -1};
+        }
+    }
+
+    // check Quads
+    for (int i = 12; i >= 0; i--)
+    {
+        if (cards[i].size() == 4)
+        {
+            return {8, i};
+        }
+    }
+
+    // check full house
+    std::vector<int> trips;
+    std::vector<int> pairs;
+
+    for (int i = 12; i >= 0; i--)
+    {
+        if (cards[i].size() == 3)
+        {
+            trips.push_back(i);
+            pairs.push_back(i);
+        }
+        else if (cards[i].size() == 2)
+        {
+            pairs.push_back(i);
+        }
+    }
+    for (int i = 0; i < trips.size(); i++)
+    {
+        for (int j = 0; j < pairs.size(); j++)
+        {
+            if (pairs[j] == trips[i])
+            {
+                continue;
+            }
+            return {7, trips[i], pairs[j]};
+        }
+    }
+
+    // check flush
+    for (char suit : suits)
+    {
+        int count = 0;
+        std::vector<int> nums;
+        for (int i = 12; i >= 0; i--)
+        {
+            if (cards[i].find(suit) != cards[i].end())
+            {
+                count++;
+                if (count <= 5)
+                {
+                    nums.push_back(i);
+                }
+            }
+        }
+        if (count >= 5)
+        {
+            ans.push_back(6);
+            for (int num : nums)
+            {
+                ans.push_back(num);
+            }
+            return ans;
+        }
+    }
+
+    // check straight
+    for (int i = 8; i >= 0; i--)
+    {
+        bool flag = true;
+        for (int j = 0; j < 5; j++)
+        {
+            if (cards[i + j].size() == 0)
+            {
+                flag = false;
+                break;
+            }
+        }
+        if (flag)
+        {
+            return {5, i};
+        }
+    }
+    // check the wheel
+    if (cards[12].size() > 0 && cards[0].size() > 0 && cards[1].size() > 0 && cards[2].size() > 0 && cards[3].size() > 0)
+    {
+        return {5, -1};
+    }
+
+    // check trips
+    if (trips.size() != 0)
+    {
+        int trip = trips[0];
+        ans = {4, trip};
+        for (int i = 12; i >= 0; i--)
+        {
+            if (cards[i].size() > 0 && i != trip)
+            {
+                ans.push_back(i);
+                if (ans.size() == 4)
+                {
+                    return ans;
+                }
+            }
+        }
+    }
+
+    // check two pair
+    if (pairs.size() >= 2)
+    {
+        int top1 = pairs[0];
+        int top2 = pairs[1];
+        ans = {3, top1, top2};
+
+        for (int i = 12; i >= 0; i--)
+        {
+            if (cards[i].size() > 0 && i != top1 && i != top2)
+            {
+                ans.push_back(i);
+                return ans;
+            }
+        }
+    }
+
+    // check pair
+    if (pairs.size() > 0)
+    {
+        int pair = pairs[0];
+        ans = {2, pair};
+        for (int i = 12; i >= 0; i--)
+        {
+            if (cards[i].size() > 0 && i != pair)
+            {
+                ans.push_back(i);
+                if (ans.size() == 5)
+                {
+                    return ans;
+                }
+            }
+        }
+    }
+
+    // check high card
+    ans = {1};
+    for (int i = 12; i >= 0; i--)
+    {
+        if (cards[i].size() > 0)
+        {
+            ans.push_back(i);
+            if (ans.size() == 6)
+            {
+                break;
+            }
+        }
+    }
+    return ans;
+}
+
 /*
 Game Functionality
 */
@@ -496,6 +723,7 @@ void startGame()
             {
                 playersInHand.push_back(&game.seats[idx]);
                 game.seats[idx].inHand = true;
+                game.seats[idx].cards.clear();
             }
             else
             {
@@ -536,6 +764,7 @@ void startGame()
             int idx = (index % numPlayersInHand);
             Player *player = playersInHand[idx];
             do_write_string(player->fd, cards[index]);
+            player->cards.push_back(cards[index]);
             index++;
         }
 
@@ -571,6 +800,7 @@ void startGame()
         std::string flop2 = cards[index++];
         std::string flop3 = cards[index++];
         std::string flop = "Flop: " + flop1 + " " + flop2 + " " + flop3;
+        std::vector<std::string> communityCards = {flop1, flop2, flop3};
         broadcastMessage(flop);
 
         currHand.prevRaise = 0;
@@ -591,6 +821,7 @@ void startGame()
         index++;
         std::string turn = cards[index++];
         broadcastMessage("Turn: " + flop1 + " " + flop2 + " " + flop3 + " | " + turn);
+        communityCards.push_back(turn);
 
         currHand.prevRaise = 0;
         currHand.lastToBet = -1;
@@ -610,6 +841,7 @@ void startGame()
         index++;
         std::string river = cards[index++];
         broadcastMessage("River: " + flop1 + " " + flop2 + " " + flop3 + " | " + turn + " | " + river);
+        communityCards.push_back(turn);
 
         currHand.prevRaise = 0;
         currHand.lastToBet = -1;
@@ -626,11 +858,25 @@ void startGame()
             continue;
         }
 
+        std::vector<std::vector<int>> results;
+        for (Player *player : playersInHand)
+        {
+            if (player->inHand)
+            {
+                communityCards.push_back(player->cards[0]);
+                communityCards.push_back(player->cards[1]);
+                results.push_back(handValue(communityCards));
+                communityCards.pop_back();
+                communityCards.pop_back();
+            }
+        }
+
+        std::sort(results.begin(), results.end(), [](const std::vector<int> &a, const std::vector<int> &b)
+                  { return a[0] > b[0]; });
+
         std::vector<int> newBlinds = gameFinished(currHand);
         sb = newBlinds[0];
         bb = newBlinds[1];
-
-        // TODO: showdown
     }
 }
 

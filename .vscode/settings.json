@@ -51,6 +51,7 @@
         "unordered_map": "cpp",
         "deque": "cpp",
         "queue": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "unordered_set": "cpp"
     }
 }
