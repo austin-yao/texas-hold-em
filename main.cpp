@@ -5,9 +5,14 @@
 int numPlayers;
 bool debug;
 
-std::vector<Player> seats;
 int seatsTaken = 0;
 bool gameStarted;
+
+Game game;
+
+// how to best compare two hands?
+// compute a score for all of them?
+// what to do if the board is supposed to be chopped?
 
 std::shared_mutex seatsMutex;
 
@@ -84,7 +89,7 @@ std::string getUsername(int fd)
         bool flag = false;
         for (int i = 0; i < numPlayers; i++)
         {
-            Player player = seats[i];
+            Player player = game.seats[i];
             if (player.username == username)
             {
                 message = "This username is already taken. Please choose another one.";
@@ -103,11 +108,11 @@ std::string getUsername(int fd)
 int addPlayer(Player &player)
 {
     std::unique_lock<std::shared_mutex> lock(seatsMutex);
-    for (int i = 0; i < seats.size(); i++)
+    for (int i = 0; i < game.seats.size(); i++)
     {
-        if (!seats[i].active)
+        if (!game.seats[i].active)
         {
-            seats[i] = player;
+            game.seats[i] = player;
             lock.unlock();
             return i;
         }
@@ -118,7 +123,7 @@ int addPlayer(Player &player)
 
 void broadcastMessage(std::string msg)
 {
-    for (auto player : seats)
+    for (auto player : game.seats)
     {
         if (player.active)
         {
@@ -127,6 +132,321 @@ void broadcastMessage(std::string msg)
     }
 }
 
+std::vector<int> calculateBlinds(Hand &hand)
+{
+    // TODO: factor in when a player just joins they can't join in a blind.
+    int sb = hand.sb;
+    int bb = hand.bb;
+    if (debug)
+    {
+        std::cout << "Original sb: " << sb << std::endl;
+        std::cout << "Original bb: " << bb << std::endl;
+        std::cout << "Num Players: " << game.numPlayers << std::endl;
+    }
+
+    for (int i = 1; i < game.numPlayers; i++)
+    {
+        int index = (sb + i) % game.numPlayers;
+        if (game.seats[index].active)
+        {
+            std::cout << "Index: " << index << std::endl;
+            sb = index;
+            break;
+        }
+    }
+    for (int i = 1; i < game.numPlayers; i++)
+    {
+        int index = (sb + i) % game.numPlayers;
+        if (game.seats[index].active)
+        {
+            bb = index;
+            break;
+        }
+    }
+    if (debug)
+    {
+        std::cout << "New sb: " << sb << std::endl;
+        std::cout << "New bb: " << bb << std::endl;
+    }
+    return {sb, bb};
+}
+
+std::vector<int> gameFinished(Hand &hand)
+{
+    for (Player *player : hand.playersInHand)
+    {
+        if (player->inHand)
+        {
+            player->stack += hand.pot;
+            broadcastMessage(player->username + " wins " + std::to_string(hand.pot));
+        }
+    }
+    hand.pot = 0;
+    return calculateBlinds(hand);
+}
+
+void preflopBet(Hand &hand)
+{
+    bool firstRound = true;
+    int numPlayersInHand = hand.playersInHand.size();
+    int action = 2;
+    if (numPlayersInHand == 2)
+    {
+        action = 0;
+    }
+    while (action != hand.lastToBet || firstRound)
+    {
+        Player *player = hand.playersInHand[action];
+        if (player->bb)
+        {
+            firstRound = false;
+        }
+        if (!player->inHand)
+        {
+            action = (action + 1) % numPlayersInHand;
+            continue;
+        }
+        do_write_string(player->fd, "Action is on you");
+        bool bbCheck;
+        while (true)
+        {
+            if (player->bb && hand.prevRaise == 2)
+            {
+                do_write_string(player->fd, "bet, check, or fold");
+            }
+            else
+            {
+                do_write_string(player->fd, "bet, call, or fold");
+            }
+            std::string response = do_read(player->fd);
+            if (debug)
+            {
+                std::cout << response << std::endl;
+            }
+            std::vector<std::string> tokens = split(response, ' ');
+            if (tokens[0] == "check")
+            {
+                if (player->bb && hand.prevRaise == 2)
+                {
+                    bbCheck = true;
+                    break;
+                }
+                else
+                {
+                    do_write_string(player->fd, "You cannot check");
+                }
+            }
+            else if (tokens[0] == "fold")
+            {
+                numPlayersInHand--;
+                player->inHand = false;
+                // TODO: handle case where only one player remains
+                break;
+            }
+            else if (tokens[0] == "call")
+            {
+                if (hand.prevRaise == 0)
+                {
+                    do_write_string(player->fd, "No bet to call.");
+                }
+                else
+                {
+                    // need to keep track of amount to call.
+                    int amount = std::min(player->stack, hand.toCall - player->amountInStreet);
+                    player->stack -= amount;
+                    hand.pot += amount;
+                    // TODO: handle side pot logic
+                    break;
+                }
+            }
+            else if (tokens[0] == "bet")
+            {
+                if (tokens.size() < 2)
+                {
+                    do_write_string(player->fd, "Please enter a bet");
+                }
+                else
+                {
+                    int bet = std::min(atoi(tokens[1].c_str()), player->stack);
+                    int raise = bet - hand.toCall;
+                    // TODO: handle all in case
+                    if (raise < hand.prevRaise || raise < 2)
+                    {
+                        if (debug)
+                        {
+                            std::cout << hand.prevRaise << std::endl;
+                            std::cout << raise << std::endl;
+                        }
+                        do_write_string(player->fd, "Bet does not meet minimum raise");
+                    }
+                    else
+                    {
+                        player->stack -= bet - player->amountInStreet;
+                        hand.pot += bet - player->amountInStreet;
+                        player->amountInStreet = bet;
+                        hand.prevRaise = raise;
+                        hand.lastToBet = action;
+                        hand.toCall = bet;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                do_write_string(player->fd, "Action not recognized");
+            }
+        }
+
+        // this needs to be the final line
+        action = (action + 1) % numPlayersInHand;
+        if (bbCheck)
+        {
+            break;
+        }
+    }
+}
+
+void betStreet(Hand &hand)
+{
+    int action = 0;
+    int numPlayers = hand.playersInHand.size();
+    for (int i = 0; i < numPlayers; i++)
+    {
+        if (hand.playersInHand[i]->inHand)
+        {
+            action = i;
+            break;
+        }
+    }
+    bool firstRound = true;
+    while (action != hand.lastToBet || firstRound)
+    {
+        Player *player = hand.playersInHand[action];
+        if (firstRound)
+        {
+            firstRound = false;
+            hand.lastToBet = action;
+        }
+        if (!player->inHand)
+        {
+            action = (action + 1) % numPlayers;
+            continue;
+        }
+        do_write_string(player->fd, "Action is on you");
+        while (true)
+        {
+            if (hand.prevRaise == 0)
+            {
+                do_write_string(player->fd, "bet, check, or fold");
+            }
+            else
+            {
+                do_write_string(player->fd, "bet, call, or fold");
+            }
+            std::string response = do_read(player->fd);
+            if (debug)
+            {
+                std::cout << response << std::endl;
+            }
+            std::vector<std::string> tokens = split(response, ' ');
+            if (tokens[0] == "check")
+            {
+                if (hand.prevRaise == 0)
+                {
+                    break;
+                }
+                else
+                {
+                    do_write_string(player->fd, "You cannot check");
+                }
+            }
+            else if (tokens[0] == "fold")
+            {
+                hand.playersRemaining--;
+                player->inHand = false;
+                // TODO: handle case where only one player remains
+                break;
+            }
+            else if (tokens[0] == "call")
+            {
+                if (hand.prevRaise == 0)
+                {
+                    do_write_string(player->fd, "No bet to call.");
+                }
+                else
+                {
+                    // need to keep track of amount to call.
+                    int amount = std::min(player->stack, hand.toCall - player->amountInStreet);
+                    player->stack -= amount;
+                    hand.pot += amount;
+                    // TODO: handle side pot logic
+                    break;
+                }
+            }
+            else if (tokens[0] == "bet")
+            {
+                if (tokens.size() < 2)
+                {
+                    do_write_string(player->fd, "Please enter a bet");
+                }
+                else
+                {
+                    int bet = std::min(atoi(tokens[1].c_str()), player->stack);
+                    int raise = bet - hand.toCall;
+                    // TODO: handle all in case
+                    if (raise < hand.prevRaise || raise < 2)
+                    {
+                        if (debug)
+                        {
+                            std::cout << hand.prevRaise << std::endl;
+                            std::cout << raise << std::endl;
+                        }
+                        do_write_string(player->fd, "Bet does not meet minimum raise");
+                    }
+                    else
+                    {
+                        player->stack -= bet - player->amountInStreet;
+                        hand.pot += bet - player->amountInStreet;
+                        player->amountInStreet = bet;
+                        hand.prevRaise = raise;
+                        hand.lastToBet = action;
+                        hand.toCall = bet;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                do_write_string(player->fd, "Action not recognized");
+            }
+        }
+
+        // this needs to be the final line
+        action = (action + 1) % numPlayers;
+    }
+}
+
+void broadcastStacks(Hand &hand)
+{
+    std::string playersMessage = "";
+    for (int i = 0; i < hand.playersInHand.size(); i++)
+    {
+        if (i == 0)
+        {
+            playersMessage += "sb: ";
+        }
+        else if (i == 1)
+        {
+            playersMessage += "bb: ";
+        }
+        else
+        {
+            hand.playersInHand[i]->amountInStreet = 0;
+        }
+        playersMessage += hand.playersInHand[i]->username + "(" + std::to_string(hand.playersInHand[i]->stack) + ") ";
+    }
+    broadcastMessage(playersMessage);
+}
 /*
 Game Functionality
 */
@@ -143,45 +463,24 @@ void startGame()
 
     for (int i = 0; i < numPlayers; i++)
     {
-        if (seats[i].active > 0)
+        if (game.seats[i].active > 0)
         {
             sb = i;
-            seats[i].sb = true;
+            game.seats[i].sb = true;
             break;
         }
     }
     for (int i = 1; i < numPlayers; i++)
     {
         int idx = (sb + i) % numPlayers;
-        if (seats[idx].active > 0)
+        if (game.seats[idx].active > 0)
         {
             bb = i;
-            seats[idx].bb = true;
+            game.seats[idx].bb = true;
             break;
         }
     }
-    for (int i = 1; i < numPlayers; i++)
-    {
-        int idx = (bb + i) % numPlayers;
-        if (seats[idx].active)
-        {
-            utg = idx;
-            seats[idx].utg = true;
-            break;
-        }
-    }
-    std::vector<Player *> playersInHand;
-    for (int i = 0; i < numPlayers; i++)
-    {
-        int idx = (sb + i) % numPlayers;
-        if (seats[idx].active)
-        {
-            playersInHand.push_back(&seats[idx]);
-            seats[idx].inHand = true;
-        }
-    }
-    // TODO: keep game state to know what players have which cards
-    // TODO: ensure that players who just joined are not dealt cards. keep track of an inhand variable for each.
+    // TODO: keep game state to know what players have which cards for showdown.
     while (true)
     {
         // shuffle the cards
@@ -189,41 +488,49 @@ void startGame()
         std::mt19937 rng(rd());
         std::shuffle(cards.begin(), cards.end(), rng);
 
-        // TODO: broadcast stack sizes of all players and positions, do this at every action.
+        std::vector<Player *> playersInHand;
+        for (int i = 0; i < numPlayers; i++)
+        {
+            int idx = (sb + i) % numPlayers;
+            if (game.seats[idx].active)
+            {
+                playersInHand.push_back(&game.seats[idx]);
+                game.seats[idx].inHand = true;
+            }
+            else
+            {
+                game.seats[idx].inHand = false;
+            }
+        }
+
+        Hand currHand = {
+            .playersInHand = playersInHand,
+            .playersRemaining = static_cast<int>(playersInHand.size()),
+            .pot = 0,
+            .toCall = 2,
+            .prevRaise = 2,
+            .lastToBet = 1,
+            .sb = sb,
+            .bb = bb};
 
         // calculate the blinds
-        int pot = std::min(seats[bb].stack, 2) + std::min(seats[sb].stack, 1);
-        seats[bb].amountInStreet = std::min(seats[bb].stack, 2);
-        seats[sb].amountInStreet = std::min(seats[sb].stack, 2);
+        currHand.pot = std::min(currHand.playersInHand[1]->stack, 2) + std::min(currHand.playersInHand[0]->stack, 1);
+        game.seats[bb].amountInStreet = std::min(currHand.playersInHand[1]->stack, 2);
+        game.seats[sb].amountInStreet = std::min(currHand.playersInHand[0]->stack, 1);
 
-        seats[bb].stack -= std::min(seats[bb].stack, 2);
-        seats[sb].stack -= std::min(seats[sb].stack, 1);
+        currHand.playersInHand[1]->stack -= std::min(currHand.playersInHand[1]->stack, 2);
+        currHand.playersInHand[0]->stack -= std::min(currHand.playersInHand[0]->stack, 1);
 
         // burn the first card
         int index = 1;
         int action = 0;
         std::string playersMessage = "";
-        for (int i = 0; i < playersInHand.size(); i++)
-        {
-            if (i == 0)
-            {
-                playersMessage += "sb: ";
-            }
-            else if (i == 1)
-            {
-                playersMessage += "bb: ";
-            }
-            else
-            {
-                playersInHand[i]->amountInStreet = 0;
-            }
-            playersMessage += playersInHand[i]->username + "(" + std::to_string(playersInHand[i]->stack) + ") ";
-        }
-        broadcastMessage(playersMessage);
+
+        broadcastStacks(currHand);
         // broadcast information about the people in the hand.
 
         // dealing the cards
-        int numPlayersInHand = playersInHand.size();
+        int numPlayersInHand = currHand.playersInHand.size();
         for (int i = 0; i < numPlayersInHand * 2; i++)
         {
             int idx = (index % numPlayersInHand);
@@ -244,111 +551,18 @@ void startGame()
             action = 2;
         }
         // lastToBet was the bigBlind
-        int lastToBet = 1;
-        int prevRaise = 2;
-        int toCall = 2;
         bool firstRound = true;
 
-        // TODO: handle case where the big blind can also have action.
-        while (action != lastToBet || firstRound)
-        {
-            Player *player = playersInHand[action];
-            if (player->bb)
-            {
-                firstRound = false;
-            }
-            if (!player->inHand)
-            {
-                action = (action + 1) % numPlayersInHand;
-                continue;
-            }
-            do_write_string(player->fd, "Action is on you");
-            while (true)
-            {
-                if (prevRaise == 0)
-                {
-                    do_write_string(player->fd, "bet, check, or fold");
-                }
-                else
-                {
-                    do_write_string(player->fd, "bet, call, or fold");
-                }
-                std::string response = do_read(player->fd);
-                if (debug)
-                {
-                    std::cout << response << std::endl;
-                }
-                std::vector<std::string> tokens = split(response, ' ');
-                if (tokens[0] == "check")
-                {
-                    if (prevRaise == 0)
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        do_write_string(player->fd, "You cannot check");
-                    }
-                }
-                else if (tokens[0] == "fold")
-                {
-                    numPlayersInHand--;
-                    // TODO: handle case where only one player remains
-                    break;
-                }
-                else if (tokens[0] == "call")
-                {
-                    if (prevRaise == 0)
-                    {
-                        do_write_string(player->fd, "No bet to call.");
-                    }
-                    else
-                    {
-                        // need to keep track of amount to call.
-                        int amount = std::max(player->stack, toCall - player->amountInStreet);
-                        player->stack -= amount;
-                        // TODO: handle side pot logic
-                        break;
-                    }
-                }
-                else if (tokens[0] == "bet")
-                {
-                    if (tokens.size() < 2)
-                    {
-                        do_write_string(player->fd, "Please enter a bet");
-                    }
-                    else
-                    {
-                        int bet = std::min(atoi(tokens[1].c_str()), player->stack);
-                        int raise = bet - toCall;
-                        // TODO: handle all in case
-                        if (raise < prevRaise || raise < 2)
-                        {
-                            if (debug)
-                            {
-                                std::cout << prevRaise << std::endl;
-                                std::cout << raise << std::endl;
-                            }
-                            do_write_string(player->fd, "Bet does not meet minimum raise");
-                        }
-                        else
-                        {
-                            player->stack -= bet - player->amountInStreet;
-                            player->amountInStreet = bet;
-                            prevRaise = raise;
-                            lastToBet = action;
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    do_write_string(player->fd, "Action not recognized");
-                }
-            }
+        broadcastStacks(currHand);
+        // TODO: broadcast actions and updated stacks.
+        preflopBet(currHand);
 
-            // this needs to be the final line
-            action = (action + 1) % numPlayersInHand;
+        if (currHand.playersRemaining == 1)
+        {
+            std::vector<int> newBlinds = gameFinished(currHand);
+            sb = newBlinds[0];
+            bb = newBlinds[1];
+            continue;
         }
 
         // flop
@@ -359,7 +573,64 @@ void startGame()
         std::string flop = "Flop: " + flop1 + " " + flop2 + " " + flop3;
         broadcastMessage(flop);
 
-        break;
+        currHand.prevRaise = 0;
+        currHand.lastToBet = -1;
+        currHand.toCall = 0;
+        // for the flop
+        broadcastStacks(currHand);
+        betStreet(currHand);
+
+        if (currHand.playersRemaining == 1)
+        {
+            std::vector<int> newBlinds = gameFinished(currHand);
+            sb = newBlinds[0];
+            bb = newBlinds[1];
+            continue;
+        }
+
+        index++;
+        std::string turn = cards[index++];
+        broadcastMessage("Turn: " + flop1 + " " + flop2 + " " + flop3 + " | " + turn);
+
+        currHand.prevRaise = 0;
+        currHand.lastToBet = -1;
+        currHand.toCall = 0;
+        // for the flop
+        broadcastStacks(currHand);
+        betStreet(currHand);
+
+        if (currHand.playersRemaining == 1)
+        {
+            std::vector<int> newBlinds = gameFinished(currHand);
+            sb = newBlinds[0];
+            bb = newBlinds[1];
+            continue;
+        }
+
+        index++;
+        std::string river = cards[index++];
+        broadcastMessage("River: " + flop1 + " " + flop2 + " " + flop3 + " | " + turn + " | " + river);
+
+        currHand.prevRaise = 0;
+        currHand.lastToBet = -1;
+        currHand.toCall = 0;
+        // for the flop
+        broadcastStacks(currHand);
+        betStreet(currHand);
+
+        if (currHand.playersRemaining == 1)
+        {
+            std::vector<int> newBlinds = gameFinished(currHand);
+            sb = newBlinds[0];
+            bb = newBlinds[1];
+            continue;
+        }
+
+        std::vector<int> newBlinds = gameFinished(currHand);
+        sb = newBlinds[0];
+        bb = newBlinds[1];
+
+        // TODO: showdown
     }
 }
 
@@ -369,7 +640,8 @@ int main(int argc, char *argv[])
     processCommandLine(argc, argv);
     gameStarted = false;
 
-    seats = std::vector<Player>(numPlayers);
+    std::vector<Player> seats = std::vector<Player>(numPlayers);
+    game = {seats, numPlayers, false};
 
     int listen_fd = socket(PF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0)
@@ -431,7 +703,7 @@ int main(int argc, char *argv[])
             }
             if (seatsTaken == 2 && !gameStarted)
             {
-                gameStarted = true;
+                game.started = true;
                 std::thread gameThread(startGame);
                 gameThread.detach();
             }

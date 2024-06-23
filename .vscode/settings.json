@@ -50,6 +50,7 @@
         "shared_mutex": "cpp",
         "unordered_map": "cpp",
         "deque": "cpp",
-        "queue": "cpp"
+        "queue": "cpp",
+        "thread": "cpp"
     }
 }
