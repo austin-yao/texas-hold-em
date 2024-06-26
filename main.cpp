@@ -452,11 +452,13 @@ void broadcastStacks(Hand &hand)
 std::vector<int> handValue(std::vector<std::string> userCards)
 {
     // create a map out of this
-    std::vector<std::unordered_set<char>> cards;
+    std::vector<std::unordered_set<char>> cards(13);
     std::vector<int> ans;
     for (std::string card : userCards)
     {
+        std::cout << "About to insert a card" << std::endl;
         cards[cardToNum[card[0]]].insert(card[1]);
+        std::cout << "Done inserting a card" << std::endl;
     }
 
     std::vector<char> suits = {'h', 'c', 'd', 's'};
@@ -674,6 +676,35 @@ std::vector<int> handValue(std::vector<std::string> userCards)
     return ans;
 }
 
+bool handComparator(const std::tuple<std::vector<int>, Player *> &a, const std::tuple<std::vector<int>, Player *> &b)
+{
+    if (std::get<0>(a)[0] > std::get<0>(b)[0])
+    {
+        return true;
+    }
+    else if (std::get<0>(a)[0] < std::get<0>(b)[0])
+    {
+        return false;
+    }
+    else
+    {
+        int size = std::get<0>(a).size();
+        int index = 1;
+        while (index < size)
+        {
+            if (std::get<0>(a)[index] > std::get<0>(b)[index])
+            {
+                return true;
+            }
+            else if (std::get<0>(a)[index] < std::get<0>(b)[index])
+            {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+}
 /*
 Game Functionality
 */
@@ -850,6 +881,8 @@ void startGame()
         broadcastStacks(currHand);
         betStreet(currHand);
 
+        std::cout << "Betting finished for river" << std::endl;
+
         if (currHand.playersRemaining == 1)
         {
             std::vector<int> newBlinds = gameFinished(currHand);
@@ -858,23 +891,88 @@ void startGame()
             continue;
         }
 
-        std::vector<std::vector<int>> results;
+        std::vector<std::tuple<std::vector<int>, Player *>> results;
         for (Player *player : playersInHand)
         {
             if (player->inHand)
             {
                 communityCards.push_back(player->cards[0]);
                 communityCards.push_back(player->cards[1]);
-                results.push_back(handValue(communityCards));
+                std::cout << "About to value hand" << std::endl;
+                results.push_back(std::make_tuple(handValue(communityCards), player));
+                std::cout << "Done Valueing hand" << std::endl;
                 communityCards.pop_back();
                 communityCards.pop_back();
             }
         }
 
-        std::sort(results.begin(), results.end(), [](const std::vector<int> &a, const std::vector<int> &b)
-                  { return a[0] > b[0]; });
+        std::cout << "About to sort" << std::endl;
+        std::sort(results.begin(), results.end(), handComparator);
+        std::cout << "Finished sorting" << std::endl;
+        // compare hand history
+        int bestHandCategory = std::get<0>(results[0])[0];
+        int numWinners = 1;
+        std::unordered_set<std::string> winningUsernames;
+        winningUsernames.insert(std::get<1>(results[0])->username);
+        while (numWinners < results.size() && results[0] == results[numWinners])
+        {
+            winningUsernames.insert(std::get<1>(results[numWinners])->username);
+            numWinners++;
+        }
+        int potPerPlayer = currHand.pot / numWinners;
+        int potRemaining = currHand.pot % numWinners;
 
-        std::vector<int> newBlinds = gameFinished(currHand);
+        std::string winner;
+        int handStrength = std::get<0>(results[0])[0];
+        switch (handStrength)
+        {
+        case 10:
+            winner = "Royal Flush";
+            break;
+        case 9:
+            winner = "Straight Flush";
+            break;
+        case 8:
+            winner = "Quads";
+            break;
+        case 7:
+            winner = "Full House";
+            break;
+        case 6:
+            winner = "Flush";
+            break;
+        case 5:
+            winner = "Straight";
+            break;
+        case 4:
+            winner = "Three of a Kind";
+            break;
+        case 3:
+            winner = "Two Pair";
+            break;
+        case 2:
+            winner = "Pair";
+            break;
+        case 1:
+            winner = "High Card";
+            break;
+        default:
+            winner = "Error";
+            break;
+        }
+
+        for (Player *player : currHand.playersInHand)
+        {
+            // need to check if they actually have the winning hand
+            if (player->inHand && winningUsernames.find(player->username) != winningUsernames.end())
+            {
+                broadcastMessage(player->username + " wins " + std::to_string(potPerPlayer + potRemaining) + " with a " + winner + ".");
+                player->stack += potPerPlayer + potRemaining;
+                potRemaining = std::max(0, --potRemaining);
+            }
+        }
+
+        std::vector<int> newBlinds = calculateBlinds(currHand);
         sb = newBlinds[0];
         bb = newBlinds[1];
     }
