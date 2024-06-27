@@ -738,7 +738,7 @@ void startGame()
             break;
         }
     }
-    // TODO: keep game state to know what players have which cards for showdown.
+    // TODO: all in stuff
     while (true)
     {
         // shuffle the cards
@@ -762,6 +762,20 @@ void startGame()
             }
         }
 
+        if (playersInHand.size() < 2)
+        {
+            // to wait for players to join
+            sleep(5);
+            continue;
+        }
+        // handle edge case where heads-up, small blind is on the button
+        if (playersInHand.size() == 2)
+        {
+            Player *temp = playersInHand[0];
+            playersInHand[0] = playersInHand[1];
+            playersInHand[1] = temp;
+        }
+
         Hand currHand = {
             .playersInHand = playersInHand,
             .playersRemaining = static_cast<int>(playersInHand.size()),
@@ -776,6 +790,8 @@ void startGame()
         currHand.pot = std::min(currHand.playersInHand[1]->stack, 2) + std::min(currHand.playersInHand[0]->stack, 1);
         game.seats[bb].amountInStreet = std::min(currHand.playersInHand[1]->stack, 2);
         game.seats[sb].amountInStreet = std::min(currHand.playersInHand[0]->stack, 1);
+
+        // how to calculate logic for All ins?
 
         currHand.playersInHand[1]->stack -= std::min(currHand.playersInHand[1]->stack, 2);
         currHand.playersInHand[0]->stack -= std::min(currHand.playersInHand[0]->stack, 1);
