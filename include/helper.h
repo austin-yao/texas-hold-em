@@ -1,3 +1,6 @@
+#ifndef HELPER_H
+#define HELPER_H
+
 #include <stdio.h>
 #include <unistd.h>
 #include <iostream>
@@ -12,3 +15,5 @@ bool do_write_string(int fd, std::string msg);
 std::string do_read(int fd);
 std::string stringifyAddress(sockaddr_in src);
 std::vector<std::string> split(std::string str, char target);
+
+#endif
