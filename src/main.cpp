@@ -1,4 +1,4 @@
-#include "main.h"
+#include "../include/main.h"
 int numPlayers;
 bool debug;
 
@@ -374,44 +374,9 @@ void startGame()
             int potPerPlayer = currHand.pot / numWinners;
             int potRemaining = currHand.pot % numWinners;
 
-            std::string winner;
             int handStrength = std::get<0>(handResults[0])[0];
-            switch (handStrength)
-            {
-            case 10:
-                winner = "Royal Flush";
-                break;
-            case 9:
-                winner = "Straight Flush";
-                break;
-            case 8:
-                winner = "Quads";
-                break;
-            case 7:
-                winner = "Full House";
-                break;
-            case 6:
-                winner = "Flush";
-                break;
-            case 5:
-                winner = "Straight";
-                break;
-            case 4:
-                winner = "Three of a Kind";
-                break;
-            case 3:
-                winner = "Two Pair";
-                break;
-            case 2:
-                winner = "Pair";
-                break;
-            case 1:
-                winner = "High Card";
-                break;
-            default:
-                winner = "Error";
-                break;
-            }
+            std::string winner = handLabel(handStrength);
+
             std::cout << "Pot per player: " << potPerPlayer << std::endl;
             for (Player *player : currHand.playersInHand)
             {

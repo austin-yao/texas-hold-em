@@ -1,8 +1,49 @@
-#include "models.h"
+#include "../include/models.h"
 
 bool compare(Player p1, Player p2)
 {
     return p1.connection == p2.connection;
+}
+
+std::string handLabel(int handStrength) {
+    std::string winner;
+    switch (handStrength)
+            {
+            case 10:
+                winner = "Royal Flush";
+                break;
+            case 9:
+                winner = "Straight Flush";
+                break;
+            case 8:
+                winner = "Quads";
+                break;
+            case 7:
+                winner = "Full House";
+                break;
+            case 6:
+                winner = "Flush";
+                break;
+            case 5:
+                winner = "Straight";
+                break;
+            case 4:
+                winner = "Three of a Kind";
+                break;
+            case 3:
+                winner = "Two Pair";
+                break;
+            case 2:
+                winner = "Pair";
+                break;
+            case 1:
+                winner = "High Card";
+                break;
+            default:
+                winner = "Error";
+                break;
+            }
+    return winner;
 }
 
 std::vector<std::string>

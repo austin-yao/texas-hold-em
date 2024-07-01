@@ -1,5 +1,4 @@
-#include "client.h"
-#include "helper.h"
+#include "../include/client.h"
 
 int processCommandLine(int argc, char *argv[])
 {

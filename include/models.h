@@ -48,4 +48,6 @@ extern std::unordered_map<char, int> cardToNum;
 
 bool compare(Player p1, Player p2);
 
+std::string handLabel(int handResult);
+
 #endif

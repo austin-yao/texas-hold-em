@@ -4,4 +4,6 @@
 #include <string.h>
 #include <arpa/inet.h>
 
+#include "helper.h"
+
 int main(int argc, char *argv[]);

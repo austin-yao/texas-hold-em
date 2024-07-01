@@ -1,4 +1,4 @@
-#include "game.h"
+#include "../include/game.h"
 
 void resetPlayer(Player *player)
 {
@@ -228,7 +228,6 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
             }
         }
 
-        // this needs to be the final line
         action = (action + 1) % numPlayers;
         if (bbcheck)
         {
