@@ -62,6 +62,28 @@ void processCommandLine(int argc, char *argv[])
 Helper functions, should abstract away maybe.
 */
 
+void resetPlayer(Player *player)
+{
+    player->amountInStreet = 0;
+    player->allIn = false;
+    player->folded = false;
+    player->cards.clear();
+}
+
+void resetPlayers(Hand &hand)
+{
+    for (Player *player : hand.playersInHand)
+    {
+        resetPlayer(player);
+    }
+}
+
+void resetHand(Hand &hand)
+{
+    hand.toCall = 0;
+    hand.prevRaise = 0;
+}
+
 std::string getUsername(int fd)
 {
     std::string message = "What is your username?";
@@ -135,7 +157,6 @@ void broadcastMessage(std::string msg)
 
 std::vector<int> calculateBlinds(Hand &hand)
 {
-    // TODO: factor in when a player just joins they can't join in a blind.
     int sb = hand.sb;
     int bb = hand.bb;
     if (debug)
@@ -176,7 +197,7 @@ std::vector<int> gameFinished(Hand &hand)
 {
     for (Player *player : hand.playersInHand)
     {
-        if (player->inHand)
+        if (!(player->folded))
         {
             player->stack += hand.pot;
             broadcastMessage(player->username + " wins " + std::to_string(hand.pot));
@@ -186,137 +207,57 @@ std::vector<int> gameFinished(Hand &hand)
     return calculateBlinds(hand);
 }
 
-void preflopBet(Hand &hand)
-{
-    bool firstRound = true;
-    int numPlayersInHand = hand.playersInHand.size();
-    int action = 2;
-    if (numPlayersInHand == 2)
-    {
-        action = 0;
-    }
-    while (action != hand.lastToBet || firstRound)
-    {
-        Player *player = hand.playersInHand[action];
-        if (player->bb)
-        {
-            firstRound = false;
-        }
-        if (!player->inHand)
-        {
-            action = (action + 1) % numPlayersInHand;
-            continue;
-        }
-        do_write_string(player->fd, "Action is on you");
-        bool bbCheck;
-        while (true)
-        {
-            if (player->bb && hand.prevRaise == 2)
-            {
-                do_write_string(player->fd, "bet, check, or fold");
-            }
-            else
-            {
-                do_write_string(player->fd, "bet, call, or fold");
-            }
-            std::string response = do_read(player->fd);
-            if (debug)
-            {
-                std::cout << response << std::endl;
-            }
-            std::vector<std::string> tokens = split(response, ' ');
-            if (tokens[0] == "check")
-            {
-                if (player->bb && hand.prevRaise == 2)
-                {
-                    bbCheck = true;
-                    break;
-                }
-                else
-                {
-                    do_write_string(player->fd, "You cannot check");
-                }
-            }
-            else if (tokens[0] == "fold")
-            {
-                numPlayersInHand--;
-                player->inHand = false;
-                // TODO: handle case where only one player remains
-                break;
-            }
-            else if (tokens[0] == "call")
-            {
-                if (hand.prevRaise == 0)
-                {
-                    do_write_string(player->fd, "No bet to call.");
-                }
-                else
-                {
-                    // need to keep track of amount to call.
-                    int amount = std::min(player->stack, hand.toCall - player->amountInStreet);
-                    player->stack -= amount;
-                    hand.pot += amount;
-                    // TODO: handle side pot logic
-                    break;
-                }
-            }
-            else if (tokens[0] == "bet")
-            {
-                if (tokens.size() < 2)
-                {
-                    do_write_string(player->fd, "Please enter a bet");
-                }
-                else
-                {
-                    int bet = std::min(atoi(tokens[1].c_str()), player->stack);
-                    int raise = bet - hand.toCall;
-                    // TODO: handle all in case
-                    if (raise < hand.prevRaise || raise < 2)
-                    {
-                        if (debug)
-                        {
-                            std::cout << hand.prevRaise << std::endl;
-                            std::cout << raise << std::endl;
-                        }
-                        do_write_string(player->fd, "Bet does not meet minimum raise");
-                    }
-                    else
-                    {
-                        player->stack -= bet - player->amountInStreet;
-                        hand.pot += bet - player->amountInStreet;
-                        player->amountInStreet = bet;
-                        hand.prevRaise = raise;
-                        hand.lastToBet = action;
-                        hand.toCall = bet;
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                do_write_string(player->fd, "Action not recognized");
-            }
-        }
-
-        // this needs to be the final line
-        action = (action + 1) % numPlayersInHand;
-        if (bbCheck)
-        {
-            break;
-        }
-    }
-}
-
-void betStreet(Hand &hand)
+std::vector<Hand> betStreet(Hand &hand, bool preflop)
 {
     int action = 0;
     int numPlayers = hand.playersInHand.size();
-    for (int i = 0; i < numPlayers; i++)
+    resetHand(hand);
+    if (preflop)
     {
-        if (hand.playersInHand[i]->inHand)
+        hand.toCall = 2;
+    }
+
+    int activePlayers = 0;
+    for (Player *player : hand.playersInHand)
+    {
+        if (!(player->folded || player->allIn))
         {
-            action = i;
-            break;
+            activePlayers++;
+        }
+    }
+    if (activePlayers < 2)
+    {
+        return {};
+    }
+
+    std::vector<std::vector<int>> allIns;
+    if (!preflop)
+    {
+        if (numPlayers == 2)
+        {
+            action = 1;
+        }
+        else
+        {
+            for (int i = 0; i < numPlayers + 2; i++)
+            {
+                if (!(hand.playersInHand[i % numPlayers]->folded || hand.playersInHand[i % numPlayers]->allIn))
+                {
+                    action = i % numPlayers;
+                    break;
+                }
+            }
+        }
+    }
+    else
+    {
+        if (numPlayers == 2)
+        {
+            action = 0;
+        }
+        else
+        {
+            action = 2;
         }
     }
     bool firstRound = true;
@@ -328,15 +269,16 @@ void betStreet(Hand &hand)
             firstRound = false;
             hand.lastToBet = action;
         }
-        if (!player->inHand)
+        if (player->folded || player->allIn)
         {
             action = (action + 1) % numPlayers;
             continue;
         }
         do_write_string(player->fd, "Action is on you");
+        bool bbcheck;
         while (true)
         {
-            if (hand.prevRaise == 0)
+            if (hand.prevRaise == 0 || (preflop && player->bb && hand.toCall == 2))
             {
                 do_write_string(player->fd, "bet, check, or fold");
             }
@@ -344,14 +286,21 @@ void betStreet(Hand &hand)
             {
                 do_write_string(player->fd, "bet, call, or fold");
             }
+
             std::string response = do_read(player->fd);
             if (debug)
             {
                 std::cout << response << std::endl;
             }
             std::vector<std::string> tokens = split(response, ' ');
+
             if (tokens[0] == "check")
             {
+                if (player->bb && hand.toCall == 2)
+                {
+                    bbcheck = true;
+                    break;
+                }
                 if (hand.prevRaise == 0)
                 {
                     break;
@@ -364,8 +313,7 @@ void betStreet(Hand &hand)
             else if (tokens[0] == "fold")
             {
                 hand.playersRemaining--;
-                player->inHand = false;
-                // TODO: handle case where only one player remains
+                player->folded = true;
                 break;
             }
             else if (tokens[0] == "call")
@@ -377,10 +325,16 @@ void betStreet(Hand &hand)
                 else
                 {
                     // need to keep track of amount to call.
-                    int amount = std::min(player->stack, hand.toCall - player->amountInStreet);
-                    player->stack -= amount;
+                    int amount = std::min(player->stack - player->amountInStreet, hand.toCall - player->amountInStreet);
+
+                    // All in case
+                    if (amount == player->stack - player->amountInStreet)
+                    {
+                        player->allIn = true;
+                        allIns.push_back({player->stack, action});
+                    }
+                    player->amountInStreet += amount;
                     hand.pot += amount;
-                    // TODO: handle side pot logic
                     break;
                 }
             }
@@ -394,8 +348,15 @@ void betStreet(Hand &hand)
                 {
                     int bet = std::min(atoi(tokens[1].c_str()), player->stack);
                     int raise = bet - hand.toCall;
-                    // TODO: handle all in case
-                    if (raise < hand.prevRaise || raise < 2)
+                    std::cout << "Bet size: " << bet << std::endl;
+                    std::cout << "Raise size: " << raise << std::endl;
+
+                    if (bet == player->stack)
+                    {
+                        allIns.push_back({player->stack, action});
+                        player->allIn = true;
+                    }
+                    else if (raise < hand.prevRaise || raise < 2)
                     {
                         if (debug)
                         {
@@ -403,17 +364,15 @@ void betStreet(Hand &hand)
                             std::cout << raise << std::endl;
                         }
                         do_write_string(player->fd, "Bet does not meet minimum raise");
+                        continue;
                     }
-                    else
-                    {
-                        player->stack -= bet - player->amountInStreet;
-                        hand.pot += bet - player->amountInStreet;
-                        player->amountInStreet = bet;
-                        hand.prevRaise = raise;
-                        hand.lastToBet = action;
-                        hand.toCall = bet;
-                        break;
-                    }
+                    hand.toCall = bet;
+                    hand.pot += bet - player->amountInStreet;
+                    std::cout << "Pot after raise: " << hand.pot << std::endl;
+                    player->amountInStreet = bet;
+                    hand.prevRaise = raise;
+                    hand.lastToBet = action;
+                    break;
                 }
             }
             else
@@ -424,7 +383,54 @@ void betStreet(Hand &hand)
 
         // this needs to be the final line
         action = (action + 1) % numPlayers;
+        if (bbcheck)
+        {
+            break;
+        }
     }
+
+    // calculating allInLogic
+    std::sort(allIns.begin(), allIns.end(), [](const std::vector<int> &a, const std::vector<int> &b)
+              { return a[0] < b[0]; });
+    int totalAllIn = 0;
+    std::vector<Hand> otherHands;
+    for (auto allIn : allIns)
+    {
+        std::cout << "Inside all In 393" << std::endl;
+        Player *allInPlayer = hand.playersInHand[allIn[1]];
+        if (allInPlayer->stack == 0)
+        {
+            allInPlayer->allIn = true;
+            continue;
+        }
+        Hand copyHand = hand;
+        copyHand.playersInHand.clear();
+        for (Player *player : hand.playersInHand)
+        {
+            if (!(player->folded || player->allIn) || (player == allInPlayer))
+            {
+                copyHand.playersInHand.push_back(player);
+                int amountToSubtract = std::min(allIn[0] - totalAllIn, player->stack);
+                copyHand.pot += amountToSubtract;
+                hand.pot -= amountToSubtract;
+                player->stack -= amountToSubtract;
+                player->amountInStreet -= amountToSubtract;
+                if (player->stack == 0)
+                {
+                    player->allIn = true;
+                }
+            }
+        }
+        allInPlayer->allIn = true;
+        otherHands.push_back(copyHand);
+    }
+
+    for (Player *player : hand.playersInHand)
+    {
+        player->stack -= player->amountInStreet;
+        player->amountInStreet = 0;
+    }
+    return otherHands;
 }
 
 void broadcastStacks(Hand &hand)
@@ -456,9 +462,7 @@ std::vector<int> handValue(std::vector<std::string> userCards)
     std::vector<int> ans;
     for (std::string card : userCards)
     {
-        std::cout << "About to insert a card" << std::endl;
         cards[cardToNum[card[0]]].insert(card[1]);
-        std::cout << "Done inserting a card" << std::endl;
     }
 
     std::vector<char> suits = {'h', 'c', 'd', 's'};
@@ -601,6 +605,7 @@ std::vector<int> handValue(std::vector<std::string> userCards)
             return {5, i};
         }
     }
+
     // check the wheel
     if (cards[12].size() > 0 && cards[0].size() > 0 && cards[1].size() > 0 && cards[2].size() > 0 && cards[3].size() > 0)
     {
@@ -717,7 +722,6 @@ void startGame()
     // find the blind positions
     int bb;
     int sb;
-    int utg;
 
     for (int i = 0; i < numPlayers; i++)
     {
@@ -738,7 +742,8 @@ void startGame()
             break;
         }
     }
-    // TODO: all in stuff
+
+    // Hand loop
     while (true)
     {
         // shuffle the cards
@@ -753,12 +758,7 @@ void startGame()
             if (game.seats[idx].active)
             {
                 playersInHand.push_back(&game.seats[idx]);
-                game.seats[idx].inHand = true;
-                game.seats[idx].cards.clear();
-            }
-            else
-            {
-                game.seats[idx].inHand = false;
+                resetPlayer(&game.seats[idx]);
             }
         }
 
@@ -767,13 +767,6 @@ void startGame()
             // to wait for players to join
             sleep(5);
             continue;
-        }
-        // handle edge case where heads-up, small blind is on the button
-        if (playersInHand.size() == 2)
-        {
-            Player *temp = playersInHand[0];
-            playersInHand[0] = playersInHand[1];
-            playersInHand[1] = temp;
         }
 
         Hand currHand = {
@@ -793,13 +786,20 @@ void startGame()
 
         // how to calculate logic for All ins?
 
-        currHand.playersInHand[1]->stack -= std::min(currHand.playersInHand[1]->stack, 2);
-        currHand.playersInHand[0]->stack -= std::min(currHand.playersInHand[0]->stack, 1);
+        if (currHand.playersInHand[0]->stack == 0)
+        {
+            currHand.playersInHand[0]->allIn = true;
+        }
+        if (currHand.playersInHand[1]->stack == 0)
+        {
+            currHand.playersInHand[1]->allIn = true;
+        }
 
         // burn the first card
         int index = 1;
         int action = 0;
         std::string playersMessage = "";
+        std::vector<Hand> allInHands;
 
         broadcastStacks(currHand);
         // broadcast information about the people in the hand.
@@ -816,22 +816,15 @@ void startGame()
         }
 
         // pre-flop
-        std::cout << "Pre-Flop" << std::endl;
-        if (numPlayersInHand == 2)
-        {
-            // small blind is also UTG
-            action = 0;
-        }
-        else
-        {
-            action = 2;
-        }
-        // lastToBet was the bigBlind
-        bool firstRound = true;
 
         broadcastStacks(currHand);
-        // TODO: broadcast actions and updated stacks.
-        preflopBet(currHand);
+
+        std::vector<Hand> preflopAllIns = betStreet(currHand, true);
+        for (Hand hand : preflopAllIns)
+        {
+            std::cout << "Adding to preflop all in" << std::endl;
+            allInHands.push_back(hand);
+        }
 
         if (currHand.playersRemaining == 1)
         {
@@ -855,7 +848,12 @@ void startGame()
         currHand.toCall = 0;
         // for the flop
         broadcastStacks(currHand);
-        betStreet(currHand);
+        std::vector<Hand> flopAllIns = betStreet(currHand, false);
+        for (Hand hand : flopAllIns)
+        {
+            std::cout << "Adding to flop all in" << std::endl;
+            allInHands.push_back(hand);
+        }
 
         if (currHand.playersRemaining == 1)
         {
@@ -873,9 +871,14 @@ void startGame()
         currHand.prevRaise = 0;
         currHand.lastToBet = -1;
         currHand.toCall = 0;
-        // for the flop
+        // for the turn
         broadcastStacks(currHand);
-        betStreet(currHand);
+        std::vector<Hand> turnAllIns = betStreet(currHand, false);
+        for (Hand hand : turnAllIns)
+        {
+            std::cout << "Adding to turn all in" << std::endl;
+            allInHands.push_back(hand);
+        }
 
         if (currHand.playersRemaining == 1)
         {
@@ -893,9 +896,14 @@ void startGame()
         currHand.prevRaise = 0;
         currHand.lastToBet = -1;
         currHand.toCall = 0;
-        // for the flop
+        // for the river
         broadcastStacks(currHand);
-        betStreet(currHand);
+        std::vector<Hand> riverAllIns = betStreet(currHand, false);
+        for (Hand hand : riverAllIns)
+        {
+            std::cout << "Adding to river all in" << std::endl;
+            allInHands.push_back(hand);
+        }
 
         std::cout << "Betting finished for river" << std::endl;
 
@@ -910,81 +918,91 @@ void startGame()
         std::vector<std::tuple<std::vector<int>, Player *>> results;
         for (Player *player : playersInHand)
         {
-            if (player->inHand)
+            if (!(player->folded))
             {
                 communityCards.push_back(player->cards[0]);
                 communityCards.push_back(player->cards[1]);
-                std::cout << "About to value hand" << std::endl;
                 results.push_back(std::make_tuple(handValue(communityCards), player));
-                std::cout << "Done Valueing hand" << std::endl;
                 communityCards.pop_back();
                 communityCards.pop_back();
             }
         }
 
-        std::cout << "About to sort" << std::endl;
         std::sort(results.begin(), results.end(), handComparator);
-        std::cout << "Finished sorting" << std::endl;
         // compare hand history
-        int bestHandCategory = std::get<0>(results[0])[0];
-        int numWinners = 1;
-        std::unordered_set<std::string> winningUsernames;
-        winningUsernames.insert(std::get<1>(results[0])->username);
-        while (numWinners < results.size() && results[0] == results[numWinners])
+        allInHands.push_back(currHand);
+        for (Hand &hand : allInHands)
         {
-            winningUsernames.insert(std::get<1>(results[numWinners])->username);
-            numWinners++;
-        }
-        int potPerPlayer = currHand.pot / numWinners;
-        int potRemaining = currHand.pot % numWinners;
-
-        std::string winner;
-        int handStrength = std::get<0>(results[0])[0];
-        switch (handStrength)
-        {
-        case 10:
-            winner = "Royal Flush";
-            break;
-        case 9:
-            winner = "Straight Flush";
-            break;
-        case 8:
-            winner = "Quads";
-            break;
-        case 7:
-            winner = "Full House";
-            break;
-        case 6:
-            winner = "Flush";
-            break;
-        case 5:
-            winner = "Straight";
-            break;
-        case 4:
-            winner = "Three of a Kind";
-            break;
-        case 3:
-            winner = "Two Pair";
-            break;
-        case 2:
-            winner = "Pair";
-            break;
-        case 1:
-            winner = "High Card";
-            break;
-        default:
-            winner = "Error";
-            break;
-        }
-
-        for (Player *player : currHand.playersInHand)
-        {
-            // need to check if they actually have the winning hand
-            if (player->inHand && winningUsernames.find(player->username) != winningUsernames.end())
+            int allInIndex = 0;
+            std::vector<std::tuple<std::vector<int>, Player *>> handResults;
+            while (allInIndex < results.size())
             {
-                broadcastMessage(player->username + " wins " + std::to_string(potPerPlayer + potRemaining) + " with a " + winner + ".");
-                player->stack += potPerPlayer + potRemaining;
-                potRemaining = std::max(0, --potRemaining);
+                Player *currPlayer = std::get<1>(results[allInIndex]);
+                if (std::find(hand.playersInHand.begin(), hand.playersInHand.end(), currPlayer) != hand.playersInHand.end())
+                {
+                    handResults.push_back(results[allInIndex]);
+                }
+                allInIndex++;
+            }
+            int bestHandCategory = std::get<0>(handResults[0])[0];
+            int numWinners = 1;
+            std::unordered_set<std::string> winningUsernames;
+            winningUsernames.insert(std::get<1>(handResults[0])->username);
+            while (numWinners < handResults.size() && handResults[0] == handResults[numWinners])
+            {
+                winningUsernames.insert(std::get<1>(handResults[numWinners])->username);
+                numWinners++;
+            }
+            int potPerPlayer = currHand.pot / numWinners;
+            int potRemaining = currHand.pot % numWinners;
+
+            std::string winner;
+            int handStrength = std::get<0>(handResults[0])[0];
+            switch (handStrength)
+            {
+            case 10:
+                winner = "Royal Flush";
+                break;
+            case 9:
+                winner = "Straight Flush";
+                break;
+            case 8:
+                winner = "Quads";
+                break;
+            case 7:
+                winner = "Full House";
+                break;
+            case 6:
+                winner = "Flush";
+                break;
+            case 5:
+                winner = "Straight";
+                break;
+            case 4:
+                winner = "Three of a Kind";
+                break;
+            case 3:
+                winner = "Two Pair";
+                break;
+            case 2:
+                winner = "Pair";
+                break;
+            case 1:
+                winner = "High Card";
+                break;
+            default:
+                winner = "Error";
+                break;
+            }
+            std::cout << "Pot per player: " << potPerPlayer << std::endl;
+            for (Player *player : currHand.playersInHand)
+            {
+                if (!(player->folded || player->allIn) && winningUsernames.find(player->username) != winningUsernames.end())
+                {
+                    broadcastMessage(player->username + " wins " + std::to_string(potPerPlayer + potRemaining) + " with a " + winner + ".");
+                    player->stack += potPerPlayer + potRemaining;
+                    potRemaining = std::max(0, --potRemaining);
+                }
             }
         }
 

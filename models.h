@@ -14,10 +14,9 @@ struct Player
     bool active;
     bool sb;
     bool bb;
-    bool utg;
-    bool inHand;
     int amountInStreet;
     bool allIn;
+    bool folded;
     std::vector<std::string> cards;
 };
 
