@@ -134,7 +134,7 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
         bool bbcheck;
         while (true)
         {
-            if (hand.prevRaise == 0 || (preflop && player->bb && hand.toCall == 2))
+            if (hand.toCall == 0 || (preflop && player->bb && hand.toCall == 2))
             {
                 do_write_string(player->fd, "bet, check, or fold");
             }
@@ -153,7 +153,7 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
                     bbcheck = true;
                     break;
                 }
-                if (hand.prevRaise == 0)
+                if (hand.toCall == 0)
                 {
                     break;
                 }
@@ -170,7 +170,7 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
             }
             else if (tokens[0] == "call")
             {
-                if (hand.prevRaise == 0)
+                if (hand.toCall == 0)
                 {
                     do_write_string(player->fd, "No bet to call.");
                 }
