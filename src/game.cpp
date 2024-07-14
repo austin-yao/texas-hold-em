@@ -32,7 +32,7 @@ std::vector<int> calculateBlinds(Hand &hand, Game &game)
     for (int i = 1; i < game.numPlayers; i++)
     {
         int index = (sb + i) % game.numPlayers;
-        if (game.seats[index].active)
+        if (game.seats[index].active && game.seats[index].stack > 0)
         {
             std::cout << "Index: " << index << std::endl;
             sb = index;
@@ -42,7 +42,7 @@ std::vector<int> calculateBlinds(Hand &hand, Game &game)
     for (int i = 1; i < game.numPlayers; i++)
     {
         int index = (sb + i) % game.numPlayers;
-        if (game.seats[index].active)
+        if (game.seats[index].active && game.seats[index].stack > 0)
         {
             bb = index;
             break;
@@ -189,6 +189,7 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
                     if (amount == player->stack - player->amountInStreet)
                     {
                         player->allIn = true;
+                        // player->stack is the amount in this pot?
                         allIns.push_back({player->stack, action});
                     }
                     player->amountInStreet += amount;
@@ -242,44 +243,85 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
     }
 
     // calculating allInLogic
+    // if everyone all in for the same amount, don't push back to allIns.
     std::sort(allIns.begin(), allIns.end(), [](const std::vector<int> &a, const std::vector<int> &b)
               { return a[0] < b[0]; });
-    int totalAllIn = 0;
-    std::vector<Hand> otherHands;
-    for (auto allIn : allIns)
+
+    // add in a check here.
+    bool everyoneAllIn = true;
+    if (allIns.size() > 0)
     {
-        std::cout << "Inside all In 393" << std::endl;
-        Player *allInPlayer = hand.playersInHand[allIn[1]];
-        if (allInPlayer->stack == 0)
-        {
-            allInPlayer->allIn = true;
-            continue;
-        }
-        Hand copyHand = hand;
-        copyHand.playersInHand.clear();
+        int allInAmount = allIns[0][0];
         for (Player *player : hand.playersInHand)
         {
-            if (!(player->folded || player->allIn) || (player == allInPlayer))
+            if (player->folded)
             {
-                copyHand.playersInHand.push_back(player);
-                int amountToSubtract = std::min(allIn[0] - totalAllIn, player->stack);
-                copyHand.pot += amountToSubtract;
-                hand.pot -= amountToSubtract;
-                player->stack -= amountToSubtract;
-                player->amountInStreet -= amountToSubtract;
-                if (player->stack == 0)
-                {
-                    player->allIn = true;
-                }
+                continue;
+            }
+            if (player->amountInStreet < player->stack)
+            {
+                everyoneAllIn = false;
+                break;
+            }
+            if (player->amountInStreet != allInAmount)
+            {
+                everyoneAllIn = false;
+                break;
             }
         }
-        allInPlayer->allIn = true;
-        otherHands.push_back(copyHand);
+    }
+    else
+    {
+        everyoneAllIn = false;
+    }
+
+    int totalAllIn = 0;
+    std::vector<Hand> otherHands;
+    if (!everyoneAllIn && allIns.size() > 0)
+    {
+        for (auto allIn : allIns)
+        {
+            Player *allInPlayer = hand.playersInHand[allIn[1]];
+            std::cout << "Inside all In 393 with " << allIn[0] << " all in player: " << allInPlayer->username << std::endl;
+            if (allInPlayer->stack == 0)
+            {
+                allInPlayer->allIn = true;
+                continue;
+            }
+            Hand copyHand = hand;
+            copyHand.playersInHand.clear();
+            copyHand.pot = 0;
+            for (Player *player : hand.playersInHand)
+            {
+                if ((!player->folded && player->stack > 0) || (player == allInPlayer))
+                {
+                    std::cout << "264 " << player->username << std::endl;
+                    copyHand.playersInHand.push_back(player);
+                    int amountToSubtract = std::min(allIn[0] - totalAllIn, player->stack);
+                    std::cout << "Amount to subtract: " << amountToSubtract << std::endl;
+                    copyHand.pot += amountToSubtract;
+                    hand.pot -= amountToSubtract;
+                    player->stack -= amountToSubtract;
+                    player->amountInStreet -= amountToSubtract;
+                    if (player->stack == 0)
+                    {
+                        player->allIn = true;
+                    }
+                }
+            }
+            allInPlayer->allIn = true;
+            std::cout << "Copy hand.pot: " << copyHand.pot << std::endl;
+            otherHands.push_back(copyHand);
+        }
     }
 
     for (Player *player : hand.playersInHand)
     {
         player->stack -= player->amountInStreet;
+        if (player->stack == 0)
+        {
+            player->allIn = true;
+        }
         player->amountInStreet = 0;
     }
     return otherHands;

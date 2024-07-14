@@ -143,7 +143,7 @@ void startGame()
 
     for (int i = 0; i < numPlayers; i++)
     {
-        if (game.seats[i].active > 0)
+        if (game.seats[i].active > 0 && game.seats[i].stack > 0)
         {
             sb = i;
             game.seats[i].sb = true;
@@ -153,7 +153,7 @@ void startGame()
     for (int i = 1; i < numPlayers; i++)
     {
         int idx = (sb + i) % numPlayers;
-        if (game.seats[idx].active > 0)
+        if (game.seats[idx].active > 0 && game.seats[i].stack > 0)
         {
             bb = i;
             game.seats[idx].bb = true;
@@ -173,17 +173,19 @@ void startGame()
         for (int i = 0; i < numPlayers; i++)
         {
             int idx = (sb + i) % numPlayers;
-            if (game.seats[idx].active)
+            if (game.seats[idx].active && game.seats[idx].stack > 0)
             {
                 playersInHand.push_back(&game.seats[idx]);
                 resetPlayer(&game.seats[idx]);
                 if (playersInHand.size() == 1)
                 {
                     game.seats[idx].sb = true;
+                    sb = idx;
                 }
                 else if (playersInHand.size() == 2)
                 {
                     game.seats[idx].bb = true;
+                    bb = idx;
                 }
             }
         }
@@ -354,12 +356,20 @@ void startGame()
             }
         }
 
+        std::cout << "Results: " << results.size() << std::endl;
+
         std::sort(results.begin(), results.end(), handComparator);
         // compare hand history
         allInHands.push_back(currHand);
+
+        // what if everyone in the hand goes all in? don't need to make a new hand
         for (Hand &hand : allInHands)
         {
             int allInIndex = 0;
+            if (hand.pot == 0)
+            {
+                continue;
+            }
             std::vector<std::tuple<std::vector<int>, Player *>> handResults;
             while (allInIndex < results.size())
             {
@@ -370,6 +380,7 @@ void startGame()
                 }
                 allInIndex++;
             }
+            std::cout << "Hand results length: " << handResults.size() << std::endl;
             int bestHandCategory = std::get<0>(handResults[0])[0];
             int numWinners = 1;
             std::unordered_set<std::string> winningUsernames;
@@ -379,8 +390,10 @@ void startGame()
                 winningUsernames.insert(std::get<1>(handResults[numWinners])->username);
                 numWinners++;
             }
-            int potPerPlayer = currHand.pot / numWinners;
-            int potRemaining = currHand.pot % numWinners;
+            std::cout << "Hand.pot: " << hand.pot << std::endl;
+            std::cout << "Num winners: " << numWinners << std::endl;
+            int potPerPlayer = hand.pot / numWinners;
+            int potRemaining = hand.pot % numWinners;
 
             int handStrength = std::get<0>(handResults[0])[0];
             std::string winner = handLabel(handStrength);
@@ -388,7 +401,7 @@ void startGame()
             std::cout << "Pot per player: " << potPerPlayer << std::endl;
             for (Player *player : currHand.playersInHand)
             {
-                if (!(player->folded || player->allIn) && winningUsernames.find(player->username) != winningUsernames.end())
+                if (!(player->folded) && winningUsernames.find(player->username) != winningUsernames.end())
                 {
                     broadcastMessage(player->username + " wins " + std::to_string(potPerPlayer + potRemaining) + " with a " + winner + ".");
                     player->stack += potPerPlayer + potRemaining;
