@@ -1,7 +1,0 @@
-Start up commands:
-    - ./main [-v] [numPlayers]
-<<<<<<< HEAD
-    - ./client [serverAddress]
-=======
-    - ./client [serverAddress]
->>>>>>> cb67f74 (bug fixes)
