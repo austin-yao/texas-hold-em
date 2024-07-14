@@ -1,0 +1,3 @@
+Start up commands:
+    - ./main [-v] [numPlayers]
+    - ./client [serverAddress]
