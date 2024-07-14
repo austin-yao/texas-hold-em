@@ -177,6 +177,14 @@ void startGame()
             {
                 playersInHand.push_back(&game.seats[idx]);
                 resetPlayer(&game.seats[idx]);
+                if (playersInHand.size() == 1)
+                {
+                    game.seats[idx].sb = true;
+                }
+                else if (playersInHand.size() == 2)
+                {
+                    game.seats[idx].bb = true;
+                }
             }
         }
 
@@ -201,6 +209,9 @@ void startGame()
         currHand.pot = std::min(currHand.playersInHand[1]->stack, 2) + std::min(currHand.playersInHand[0]->stack, 1);
         game.seats[bb].amountInStreet = std::min(currHand.playersInHand[1]->stack, 2);
         game.seats[sb].amountInStreet = std::min(currHand.playersInHand[0]->stack, 1);
+
+        std::cout << game.seats[bb].username << " " << game.seats[bb].bb << std::endl;
+        std::cout << game.seats[sb].username << " " << game.seats[sb].sb << std::endl;
 
         // how to calculate logic for All ins?
 

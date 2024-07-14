@@ -6,6 +6,8 @@ void resetPlayer(Player *player)
     player->allIn = false;
     player->folded = false;
     player->cards.clear();
+    player->bb = false;
+    player->sb = false;
 }
 
 void resetPlayers(Hand &hand)
@@ -130,12 +132,19 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
             action = (action + 1) % numPlayers;
             continue;
         }
+        if (hand.playersRemaining == 1)
+        {
+            break;
+        }
         do_write_string(player->fd, "Action is on you");
         bool bbcheck;
         while (true)
         {
             if (hand.toCall == 0 || (preflop && player->bb && hand.toCall == 2))
             {
+                std::cout << "Debug in game start" << std::endl;
+                std::cout << hand.toCall << std::endl;
+                std::cout << player->bb << std::endl;
                 do_write_string(player->fd, "bet, check, or fold");
             }
             else
