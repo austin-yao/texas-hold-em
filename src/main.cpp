@@ -250,7 +250,6 @@ void startGame()
         std::vector<Hand> preflopAllIns = betStreet(currHand, true);
         for (Hand hand : preflopAllIns)
         {
-            std::cout << "Adding to preflop all in" << std::endl;
             allInHands.push_back(hand);
         }
 
@@ -279,7 +278,6 @@ void startGame()
         std::vector<Hand> flopAllIns = betStreet(currHand, false);
         for (Hand hand : flopAllIns)
         {
-            std::cout << "Adding to flop all in" << std::endl;
             allInHands.push_back(hand);
         }
 
@@ -329,11 +327,8 @@ void startGame()
         std::vector<Hand> riverAllIns = betStreet(currHand, false);
         for (Hand hand : riverAllIns)
         {
-            std::cout << "Adding to river all in" << std::endl;
             allInHands.push_back(hand);
         }
-
-        std::cout << "Betting finished for river" << std::endl;
 
         if (currHand.playersRemaining == 1)
         {
@@ -355,8 +350,6 @@ void startGame()
                 communityCards.pop_back();
             }
         }
-
-        std::cout << "Results: " << results.size() << std::endl;
 
         std::sort(results.begin(), results.end(), handComparator);
         // compare hand history
@@ -380,7 +373,6 @@ void startGame()
                 }
                 allInIndex++;
             }
-            std::cout << "Hand results length: " << handResults.size() << std::endl;
             int bestHandCategory = std::get<0>(handResults[0])[0];
             int numWinners = 1;
             std::unordered_set<std::string> winningUsernames;
@@ -390,15 +382,12 @@ void startGame()
                 winningUsernames.insert(std::get<1>(handResults[numWinners])->username);
                 numWinners++;
             }
-            std::cout << "Hand.pot: " << hand.pot << std::endl;
-            std::cout << "Num winners: " << numWinners << std::endl;
             int potPerPlayer = hand.pot / numWinners;
             int potRemaining = hand.pot % numWinners;
 
             int handStrength = std::get<0>(handResults[0])[0];
             std::string winner = handLabel(handStrength);
 
-            std::cout << "Pot per player: " << potPerPlayer << std::endl;
             for (Player *player : currHand.playersInHand)
             {
                 if (!(player->folded) && winningUsernames.find(player->username) != winningUsernames.end())

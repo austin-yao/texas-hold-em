@@ -207,8 +207,6 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
                 {
                     int bet = std::min(atoi(tokens[1].c_str()), player->stack);
                     int raise = bet - hand.toCall;
-                    std::cout << "Bet size: " << bet << std::endl;
-                    std::cout << "Raise size: " << raise << std::endl;
 
                     if (bet == player->stack)
                     {
@@ -222,7 +220,6 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
                     }
                     hand.toCall = bet;
                     hand.pot += bet - player->amountInStreet;
-                    std::cout << "Pot after raise: " << hand.pot << std::endl;
                     player->amountInStreet = bet;
                     hand.prevRaise = raise;
                     hand.lastToBet = action;
@@ -282,7 +279,6 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
         for (auto allIn : allIns)
         {
             Player *allInPlayer = hand.playersInHand[allIn[1]];
-            std::cout << "Inside all In 393 with " << allIn[0] << " all in player: " << allInPlayer->username << std::endl;
             if (allInPlayer->stack == 0)
             {
                 allInPlayer->allIn = true;
@@ -295,10 +291,8 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
             {
                 if ((!player->folded && player->stack > 0) || (player == allInPlayer))
                 {
-                    std::cout << "264 " << player->username << std::endl;
                     copyHand.playersInHand.push_back(player);
                     int amountToSubtract = std::min(allIn[0] - totalAllIn, player->stack);
-                    std::cout << "Amount to subtract: " << amountToSubtract << std::endl;
                     copyHand.pot += amountToSubtract;
                     hand.pot -= amountToSubtract;
                     player->stack -= amountToSubtract;
@@ -310,7 +304,6 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
                 }
             }
             allInPlayer->allIn = true;
-            std::cout << "Copy hand.pot: " << copyHand.pot << std::endl;
             otherHands.push_back(copyHand);
         }
     }
