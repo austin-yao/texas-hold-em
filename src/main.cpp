@@ -210,9 +210,6 @@ void startGame()
         game.seats[bb].amountInStreet = std::min(currHand.playersInHand[1]->stack, 2);
         game.seats[sb].amountInStreet = std::min(currHand.playersInHand[0]->stack, 1);
 
-        std::cout << game.seats[bb].username << " " << game.seats[bb].bb << std::endl;
-        std::cout << game.seats[sb].username << " " << game.seats[sb].sb << std::endl;
-
         // how to calculate logic for All ins?
 
         if (currHand.playersInHand[0]->stack == 0)

@@ -142,9 +142,6 @@ std::vector<Hand> betStreet(Hand &hand, bool preflop)
         {
             if (hand.toCall == 0 || (preflop && player->bb && hand.toCall == 2))
             {
-                std::cout << "Debug in game start" << std::endl;
-                std::cout << hand.toCall << std::endl;
-                std::cout << player->bb << std::endl;
                 do_write_string(player->fd, "bet, check, or fold");
             }
             else
